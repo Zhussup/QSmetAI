@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Разметка смысловых блоков PDF</title>
+    <!-- Подключение Tailwind CSS через CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Стили для накладываемых поверх блоков */
+        .detection-box {
+            position: absolute;
+            border-width: 2px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .detection-box:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        /* Цвета для разных классов */
+        .class-1 { border-color: #3b82f6; background-color: rgba(59, 130, 246, 0.2); } /* Table - Синий */
+        .class-2 { border-color: #10b981; background-color: rgba(16, 185, 129, 0.2); } /* Notes - Зеленый */
+        .class-3 { border-color: #f59e0b; background-color: rgba(245, 158, 11, 0.2); }  /* Table With Blueprint - Оранжевый */
+        .class-4 { border-color: #ef4444; background-color: rgba(239, 68, 68, 0.2); }  /* Blueprint - Красный */
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col font-sans">
+
+    <!-- Хедер -->
+    <header class="bg-slate-800 text-white p-4 shadow-md">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-semibold">Сегментация документов (Detectron2)</h1>
+            <span class="text-sm text-slate-400">Интерфейс визуализации зон</span>
+        </div>
+    </header>
+
+    <!-- Основной контейнер -->
+    <main class="container mx-auto flex-1 p-6 flex flex-col md:flex-row gap-6 max-h-[calc(100vh-80px)] overflow-hidden">
+        
+        <!-- Левая панель: Управление и Список страниц -->
+        <div class="w-full md:w-1/4 flex flex-col gap-4 bg-white p-4 rounded-lg shadow h-full overflow-y-auto">
+            
+            <!-- Форма загрузки -->
+            <div class="border-b pb-4">
+                <h2 class="text-lg font-medium mb-2">Загрузить PDF</h2>
+                <form id="uploadForm" class="flex flex-col gap-2">
+                    <input type="file" id="pdfFile" accept=".pdf" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" required>
+                    <button type="submit" id="submitBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition">
+                        Обработать файл
+                    </button>
+                </form>
+                <div id="loader" class="hidden text-sm text-blue-600 mt-2 font-medium animate-pulse">
+                    Нейросеть обрабатывает файл, пожалуйста подождите...
+                </div>
+            </div>
+
+            <!-- Легенда классов -->
+            <div class="border-b pb-4 text-sm">
+                <h3 class="font-semibold mb-2 text-gray-700">Обозначения классов:</h3>
+                <div class="grid grid-cols-1 gap-1.5">
+                    <div class="flex items-center gap-2"><span class="w-4 h-4 rounded border-2 border-blue-500 bg-blue-500/20"></span> Table (Таблица)</div>
+                    <div class="flex items-center gap-2"><span class="w-4 h-4 rounded border-2 border-emerald-500 bg-emerald-500/20"></span> Notes (Примечания)</div>
+                    <div class="flex items-center gap-2"><span class="w-4 h-4 rounded border-2 border-amber-500 bg-amber-500/20"></span> Table with Blueprint</div>
+                    <div class="flex items-center gap-2"><span class="w-4 h-4 rounded border-2 border-red-500 bg-red-500/20"></span> Blueprint (Чертеж)</div>
+                </div>
+            </div>
+
+            <!-- Навигация по страницам -->
+            <div class="flex-1">
+                <h2 class="text-lg font-medium mb-2 text-gray-700">Страницы документа</h2>
+                <div id="pagesList" class="flex flex-col gap-2">
+                    <p class="text-gray-400 text-sm italic">Загрузите файл для просмотра списка страниц</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Правая панель: Просмотрщик страницы и зон разметки -->
+        <div class="w-full md:w-3/4 flex flex-col bg-white p-4 rounded-lg shadow h-full overflow-hidden relative">
+            <div class="border-b pb-2 mb-4 flex justify-between items-center">
+                <h2 id="pageTitle" class="text-xl font-medium text-gray-800">Просмотр документа</h2>
+                <div id="blockStats" class="text-sm text-gray-500"></div>
+            </div>
+
+            <!-- Область отображения с масштабированием -->
+            <div class="flex-1 overflow-auto bg-gray-200 rounded flex justify-center items-start p-4 relative" id="viewerContainer">
+                <!-- Обертка для сохранения пропорций разметки поверх картинки -->
+                <div id="imageWrapper" class="relative inline-block shadow-lg bg-white hidden">
+                    <img id="documentImage" src="" alt="Страница документа" class="max-w-none block">
+                    <!-- Сюда JS будет динамически рендерить боксы разметки -->
+                    <div id="overlayContainer" class="absolute top-0 left-0 w-full h-full pointer-events-auto"></div>
+                </div>
+                
+                <div id="emptyState" class="m-auto text-center text-gray-400">
+                    <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p class="mt-2 text-sm">Загрузите PDF файл, чтобы увидеть результаты распознавания</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentData = null;
+        let activePageIndex = 0;
+
+        const uploadForm = document.getElementById('uploadForm');
+        const pdfFileInput = document.getElementById('pdfFile');
+        const submitBtn = document.getElementById('submitBtn');
+        const loader = document.getElementById('loader');
+        const pagesList = document.getElementById('pagesList');
+        const imageWrapper = document.getElementById('imageWrapper');
+        const documentImage = document.getElementById('documentImage');
+        const overlayContainer = document.getElementById('overlayContainer');
+        const emptyState = document.getElementById('emptyState');
+        const pageTitle = document.getElementById('pageTitle');
+        const blockStats = document.getElementById('blockStats');
+
+        // Обработчик отправки формы
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = pdfFileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Состояние загрузки
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50');
+            loader.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка при обработке файла сервером');
+                }
+
+                currentData = await response.json();
+                buildPagesList(currentData.pages);
+                showPage(0);
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-50');
+                loader.classList.add('hidden');
+            }
+        });
+
+        // Построение списка страниц
+        function buildPagesList(pages) {
+            pagesList.innerHTML = '';
+            emptyState.classList.add('hidden');
+            imageWrapper.classList.remove('hidden');
+
+            pages.forEach((page, index) => {
+                const btn = document.createElement('button');
+                btn.className = `w-full text-left p-2 rounded transition flex justify-between items-center text-sm font-medium ${
+                    index === activePageIndex ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`;
+                
+                // Подсчитываем статистику блоков
+                const counts = {};
+                page.blocks.forEach(b => counts[b.category] = (counts[b.category] || 0) + 1);
+                const blocksCount = page.blocks.length;
+
+                btn.innerHTML = `
+                    <span>Страница ${page.page}</span>
+                    <span class="px-2 py-0.5 rounded text-xs ${index === activePageIndex ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-800'}">
+                        Блоков: ${blocksCount}
+                    </span>
+                `;
+                
+                btn.onclick = () => showPage(index);
+                pagesList.appendChild(btn);
+            });
+        }
+
+        // Показ конкретной страницы
+        function showPage(index) {
+            activePageIndex = index;
+            const pageData = currentData.pages[index];
+            
+            // Обновляем активный элемент в меню
+            buildPagesList(currentData.pages);
+
+            pageTitle.innerText = `Страница ${pageData.page}`;
+            blockStats.innerText = `Найдено блоков: ${pageData.blocks.length}`;
+
+            // Загружаем картинку
+            documentImage.src = pageData.image_url;
+            
+            // Ждем пока загрузится картинка, чтобы получить её нативные размеры
+            documentImage.onload = function() {
+                renderOverlayBoxes(pageData.blocks, this.naturalWidth, this.naturalHeight);
+            };
+        }
+
+        // Отображение рамок разметки
+        function renderOverlayBoxes(blocks, naturalWidth, naturalHeight) {
+            // Очищаем предыдущие рамки
+            overlayContainer.innerHTML = '';
+
+            // Так как мы рендерим картинку адаптивно, нам нужно рассчитывать координаты в %
+            // Это позволит рамкам оставаться на месте при любом изменении размера экрана
+            blocks.forEach((block, idx) => {
+                const [xmin, ymin, xmax, ymax] = block.box;
+                
+                // Перевод в проценты
+                const left = (xmin / naturalWidth) * 100;
+                const top = (ymin / naturalHeight) * 100;
+                const width = ((xmax - xmin) / naturalWidth) * 100;
+                const height = ((ymax - ymin) / naturalHeight) * 100;
+
+                const box = document.createElement('div');
+                box.className = `detection-box class-${block.class_id}`;
+                box.style.left = `${left}%`;
+                box.style.top = `${top}%`;
+                box.style.width = `${width}%`;
+                box.style.height = `${height}%`;
+                
+                // Тултип при наведении
+                box.title = `${block.category} (${(block.score * 100).toFixed(1)}%)`;
+                
+                // Выводим маленькую метку с названием класса в углу рамки
+                const label = document.createElement('span');
+                label.className = 'absolute -top-5 left-0 text-[10px] font-bold text-white bg-slate-800 px-1 rounded pointer-events-none opacity-0 transition-opacity duration-200';
+                label.innerText = `${block.category} (${(block.score * 100).toFixed(0)}%)`;
+                box.appendChild(label);
+
+                // Показываем метку при наведении
+                box.onmouseenter = () => label.classList.remove('opacity-0');
+                box.onmouseleave = () => label.classList.add('opacity-0');
+
+                overlayContainer.appendChild(box);
+            });
+        }
+    </script>
+</body>
+</html>
